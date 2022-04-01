@@ -1,6 +1,8 @@
 import org.apache.hadoop.shaded.org.ehcache.impl.internal.concurrent.ConcurrentHashMap;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.sql.*;
@@ -71,97 +73,58 @@ public class FindPath {
                 .select(wayDF.col("nd._ref"), wayDF.col("tag._k").as("tag"))
                 .where(functions.array_contains(wayDF.col("tag._k"), "highway"));
 
-        JavaPairRDD<Long, Long> neighbourNodes = highwayDF.toJavaRDD().flatMapToPair(row -> {
-            List<Tuple2<Long, Long>> result = new LinkedList<>();
+        JavaPairRDD<Long, Set<Long>> neighbourNodes = highwayDF.toJavaRDD().flatMapToPair(row -> {
+            List<Tuple2<Long, Set<Long>>> result = new LinkedList<>();
             Boolean isOneWay = row.getList(1).contains("oneway");
             int numNodes = row.getList(0).size();
             if (numNodes > 0) {
                 Long prevNode = (Long) row.getList(0).get(0);
                 for (int i = 1; i < numNodes; i++) {
                     Long currNode = (Long) row.getList(0).get(i);
-                    result.add(new Tuple2<>(prevNode, currNode));
+                    Set<Long> mSet = new HashSet<>();
+                    mSet.add(currNode);
+                    result.add(new Tuple2<Long, Set<Long>>(prevNode, mSet));
                     if (!isOneWay) {
-                        result.add(new Tuple2<>(currNode, prevNode));
+                        Set<Long> nSet = new HashSet<>();
+                        mSet.add(prevNode);
+                        result.add(new Tuple2<Long, Set<Long>>(currNode, nSet));
                     }
                     prevNode = currNode;
                 }
             }
             return result.iterator();
-        });
-
-        JavaPairRDD<Long, Set<Long>> x = neighbourNodes.reduceByKey(new Function2<Long, Long, Set<Long>>() {
-
+        }).reduceByKey(new Function2<Set<Long>, Set<Long>, Set<Long>>() {
             @Override
-            public Set<Long> call(Long aLong, Long aLong2) throws Exception {
-                return null;
+            public Set<Long> call(Set<Long> setA, Set<Long> setB) throws Exception {
+                Set<Long> resultSet = new HashSet<>();
+                Iterator<Long> itr = setA.iterator();
+                while (itr.hasNext()) {
+                    resultSet.add(itr.next());
+                }
+                itr = setB.iterator();
+                while (itr.hasNext()) {
+                    resultSet.add(itr.next());
+                }
+                return resultSet;
             }
         });
 
-        neighbourNodes.foreach(x -> {
-            System.out.println("this is for each x: " + x);
+        JavaRDD<String> adjMapOutput = neighbourNodes.map(new Function<Tuple2<Long, Set<Long>>, String>() {
+            @Override
+            public String call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
+                List<Long> list = new ArrayList<Long>(longSetTuple2._2);
+                Collections.sort(list);
+                StringBuilder outputString = new StringBuilder();
+                outputString.append(longSetTuple2._1);
+                for (Long i: list) {
+                    outputString.append(" " + i);
+                }
+                return outputString.toString();
+            }
         });
 
-
-        highwayDF.show(10);
-//        JavaPairRDD<Long, Long> neighbourNodes = highwayDF.flatMap(new FlatMapFunction<Row, Tuple2<Long, Long>>() {
-//            @Override
-//            public Iterator<Tuple2<Long, Long>> call(Row row) throws Exception {
-//                return null;
-//            }
-//
-////            @Override
-////            public Iterator<Tuple2<>> call(Row row) throws Exception {
-////                List<Tuple2<Long, Long>> x = new LinkedList<>();
-////                return x.iterator();
-////            }
-//        });
-
-        // below somewhat works
-//        highwayDF.toJavaRDD().foreach(new VoidFunction<Row>() {
-//            @Override
-//            public void call(Row o) throws Exception {
-//                Boolean isOneWay = o.getList(1).contains("oneway");
-//                int numNodes = o.getList(0).size();
-//                if (numNodes > 0) {
-//                    Long prevNode = (Long) o.getList(0).get(0);
-//                    for (int i = 1; i < numNodes; i++) {
-//                        Long currNode = (Long) o.getList(0).get(i);
-//                        if (!adjacencyMap.containsKey(prevNode)) {
-//                            adjacencyMap.put(prevNode, new HashSet<>());
-//                        }
-//                        adjacencyMap.get(prevNode).add(currNode);
-//                        if (!isOneWay) {
-//                            if (!adjacencyMap.containsKey(currNode)) {
-//                                adjacencyMap.put(currNode, new HashSet<>());
-//                            }
-//                            adjacencyMap.get(currNode).add(prevNode);
-//                        }
-//                        prevNode = currNode;
-//                        System.out.println(adjacencyMap.size());
-//                    }
-//                }
-//            }
-//        });
+        adjMapOutput.saveAsTextFile("out/adjmap.txt");
         spark.stop();
-        // print the adjacency map
-        for (Long key: adjacencyMap.keySet()) {
-            StringBuilder result = new StringBuilder();
-            for (Long val: adjacencyMap.get(key)) {
-                result.append(val + " ");
-            }
-            System.out.println(key + " --> " + result);
-        }
-    }
 
-    public static void printAdjacencyMap(Map<Long, Set<Long>> adjacencyMap) {
-        System.out.println("Function is called : " + adjacencyMap.size());
-
-        for (Long key: adjacencyMap.keySet()) {
-            StringBuilder result = new StringBuilder();
-            for (Long val: adjacencyMap.get(key)) {
-                result.append(val + " ");
-            }
-            System.out.println(key + " --> " + result);
-        }
     }
 }

@@ -4,12 +4,14 @@ import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
+import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.graphframes.GraphFrame;
 import scala.Tuple2;
 
 import java.util.*;
@@ -62,7 +64,6 @@ public class FindPath {
         });
         nodeDF.show(10);
 
-
         Dataset wayDF = spark.read()
                 .format("xml")
                 .option("rootTag", "osm")
@@ -109,6 +110,22 @@ public class FindPath {
             }
         });
 
+        neighbourNodes.cache();
+        JavaPairRDD<Long, Long> adjNodesPairs = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long, Set<Long>>,
+                Long, Long>() {
+            @Override
+            public Iterator<Tuple2<Long, Long>> call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
+                List<Tuple2<Long, Long>> emitList = new LinkedList<>();
+                Iterator<Long> itr = longSetTuple2._2.iterator();
+                while (itr.hasNext()) {
+                    emitList.add(new Tuple2<>(longSetTuple2._1, itr.next()));
+                }
+                return emitList.iterator();
+            }
+        });
+        adjNodesPairs.cache();
+
+        Dataset<Row> gInput = spark.createDataset(adjNodesPairs.collect(), Encoders.tuple(Encoders.LONG(), Encoders.LONG())).toDF("src", "dst");
         JavaRDD<String> adjMapOutput = neighbourNodes.map(new Function<Tuple2<Long, Set<Long>>, String>() {
             @Override
             public String call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
@@ -123,8 +140,16 @@ public class FindPath {
             }
         });
 
+        // generate the adjacency list
         adjMapOutput.saveAsTextFile("out/adjmap.txt");
-        spark.stop();
 
+        // Generating the shortest paths
+        GraphFrame g = new GraphFrame(nodeDF.select(nodeDF.col("_id").as("id")), gInput);
+        ArrayList<Object> input = new ArrayList<>();
+        input.add(2391320044L);
+        input.add(9170734738L);
+        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
+        results1.select("id", "distances").show();
+        spark.stop();
     }
 }

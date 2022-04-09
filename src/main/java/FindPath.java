@@ -2,10 +2,8 @@ import org.apache.hadoop.shaded.org.ehcache.impl.internal.concurrent.ConcurrentH
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.Function2;
-import org.apache.spark.api.java.function.PairFlatMapFunction;
-import org.apache.spark.api.java.function.VoidFunction;
+import org.apache.spark.api.java.Optional;
+import org.apache.spark.api.java.function.*;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
@@ -52,7 +50,12 @@ public class FindPath {
                 .schema(nodeSchema)
                 .load(OSM_FILE_PATH);
 
-        nodeDF.show(10);
+        JavaPairRDD<Long, Integer> nodeRDD = nodeDF.toJavaRDD().mapToPair(new PairFunction<Row, Long, Integer>() {
+            @Override
+            public Tuple2<Long, Integer> call(Row row) throws Exception {
+                return new Tuple2<Long, Integer>((Long)row.get(0), 1);
+            }
+        });
 
         Dataset wayDF = spark.read()
                 .format("xml")
@@ -75,11 +78,11 @@ public class FindPath {
                     Set<Long> mSet = new HashSet<>();
                     mSet.add(currNode);
                     result.add(new Tuple2<Long, Set<Long>>(prevNode, mSet));
-                    if (!isOneWay) {
+                    // if (!isOneWay) {
                         Set<Long> nSet = new HashSet<>();
-                        mSet.add(prevNode);
+                        nSet.add(prevNode);
                         result.add(new Tuple2<Long, Set<Long>>(currNode, nSet));
-                    }
+                    // }
                     prevNode = currNode;
                 }
             }
@@ -100,63 +103,113 @@ public class FindPath {
             }
         });
 
-        neighbourNodes.cache();
-        JavaPairRDD<Long, Long> adjNodesPairs = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long, Set<Long>>,
-                Long, Long>() {
-            @Override
-            public Iterator<Tuple2<Long, Long>> call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
-                List<Tuple2<Long, Long>> emitList = new LinkedList<>();
-                Iterator<Long> itr = longSetTuple2._2.iterator();
-                while (itr.hasNext()) {
-                    emitList.add(new Tuple2<>(longSetTuple2._1, itr.next()));
-                }
-                return emitList.iterator();
-            }
-        });
-        adjNodesPairs.cache();
+        JavaPairRDD<Long, Tuple2<Integer, Optional<Set<Long>>>> neighbourNodesFull = nodeRDD.leftOuterJoin(neighbourNodes).sortByKey();
+        neighbourNodesFull.cache();
 
-        Dataset<Row> gInput = spark.createDataset(adjNodesPairs.collect(), Encoders.tuple(Encoders.LONG(), Encoders.LONG())).toDF("src", "dst");
-        JavaRDD<String> adjMapOutput = neighbourNodes.map(new Function<Tuple2<Long, Set<Long>>, String>() {
+//        JavaPairRDD<Long, Long> adjNodes = neighbourNodesFull.flatMapToPair(new PairFlatMapFunction<Tuple2<Long,
+//                Tuple2<Integer, Optional<Set<Long>>>>, Long, Long>() {
+//            @Override
+//            public Iterator<Tuple2<Long, Long>> call(Tuple2<Long, Tuple2<Integer, Optional<Set<Long>>>> longTuple2Tuple2) throws Exception {
+//                List<Tuple2<Long, Long>> emitList = new LinkedList<>();
+//                if (longTuple2Tuple2._2._2.isPresent()) {
+//                    Iterator<Long> itr = longTuple2Tuple2._2._2.get().iterator();
+//                    while(itr.hasNext()) {
+//                        emitList.add(new Tuple2<>(longTuple2Tuple2._1, itr.next()));
+//                    }
+//                }
+//                return emitList.iterator();
+//            }
+//        });
+//        adjNodes.cache();
+
+        JavaRDD<String> adjListResult = neighbourNodesFull.map(new Function<Tuple2<Long, Tuple2<Integer, Optional<Set<Long>>>>, String>() {
             @Override
-            public String call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
-                List<Long> list = new ArrayList<Long>(longSetTuple2._2);
-                Collections.sort(list);
+            public String call(Tuple2<Long, Tuple2<Integer, Optional<Set<Long>>>> longTuple2Tuple2) throws Exception {
                 StringBuilder outputString = new StringBuilder();
-                outputString.append(longSetTuple2._1);
-                for (Long i: list) {
-                    outputString.append(" " + i);
+                outputString.append(longTuple2Tuple2._1);
+                if (longTuple2Tuple2._2._2.isPresent()) {
+                    List<Long> list = new ArrayList<>(longTuple2Tuple2._2._2.get());
+                    Collections.sort(list);
+                    for (Long i: list) {
+                        outputString.append(" " + i);
+                    }
                 }
                 return outputString.toString();
             }
         });
-        gInput.withColumn("property", functions.lit(1));
-        gInput.show(10);
 
-//        Dataset meow = gInput.join(nodeDF, gInput.col("src").equalTo(nodeDF.col("_id")), "left_outer")
-//                            .join(nodeDF, gInput.col("dst").equalTo(nodeDF.col("_id")), "left_outer");
-//        meow.withColumn("song", distance(meow.col("hi"), ))
-//        System.out.println("This is meow: ");
-//        meow.show(10);
+        adjListResult.saveAsTextFile("out/adjmap.txt");
+
+
+
+
 //
-//        Dataset woof = nodeDF.select(nodeDF.col("*"))
-//                .where(nodeDF.col("_id").equalTo())
-        // generate the adjacency list
-        adjMapOutput.saveAsTextFile("out/adjmap.txt");
+//        neighbourNodes.cache();
+//        JavaPairRDD<Long, Long> adjNodesPairs = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long, Set<Long>>,
+//                Long, Long>() {
+//            @Override
+//            public Iterator<Tuple2<Long, Long>> call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
+//                List<Tuple2<Long, Long>> emitList = new LinkedList<>();
+//                Iterator<Long> itr = longSetTuple2._2.iterator();
+//                while (itr.hasNext()) {
+//                    emitList.add(new Tuple2<>(longSetTuple2._1, itr.next()));
+//                }
+//                return emitList.iterator();
+//            }
+//        });
+//        adjNodesPairs.cache();
+//
+//        Dataset<Row> gInput = spark.createDataset(adjNodesPairs.collect(), Encoders.tuple(Encoders.LONG(), Encoders.LONG())).toDF("src", "dst");
+//        JavaRDD<String> adjMapOutput = neighbourNodes.map(new Function<Tuple2<Long, Set<Long>>, String>() {
+//            @Override
+//            public String call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
+//                List<Long> list = new ArrayList<Long>(longSetTuple2._2);
+//                Collections.sort(list);
+//                StringBuilder outputString = new StringBuilder();
+//                outputString.append(longSetTuple2._1);
+//                for (Long i: list) {
+//                    outputString.append(" " + i);
+//                }
+//                return outputString.toString();
+//            }
+//        });
+//
+//
 
-        // Generating the shortest paths
-        GraphFrame g = new GraphFrame(nodeDF.select(nodeDF.col("_id").as("id")), gInput);
-        Long start = 2391320044L;
-        Long end = 9170734738L;
-        Dataset result = g.bfs().fromExpr("id = '2391320044'").toExpr("id = '9170734738'").run();
 
-        System.out.println("Final result");
-        result.show(20);
-        //        ArrayList<Object> input = new ArrayList<>();
-//        input.add(2391320044L);
-//        input.add(9170734738L);
-//        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
-//        results1.select("id", "distances").show();
 
+        // comment out the code below temporarily
+        // -- haven't reached this stage yet ---
+
+//
+//        gInput.withColumn("property", functions.lit(1));
+//        gInput.show(10);
+//
+////        Dataset meow = gInput.join(nodeDF, gInput.col("src").equalTo(nodeDF.col("_id")), "left_outer")
+////                            .join(nodeDF, gInput.col("dst").equalTo(nodeDF.col("_id")), "left_outer");
+////        meow.withColumn("song", distance(meow.col("hi"), ))
+////        System.out.println("This is meow: ");
+////        meow.show(10);
+////
+////        Dataset woof = nodeDF.select(nodeDF.col("*"))
+////                .where(nodeDF.col("_id").equalTo())
+//        // generate the adjacency list
+//        adjMapOutput.saveAsTextFile("out/adjmap.txt");
+//
+//        // Generating the shortest paths
+//        GraphFrame g = new GraphFrame(nodeDF.select(nodeDF.col("_id").as("id")), gInput);
+//        Long start = 2391320044L;
+//        Long end = 9170734738L;
+//        Dataset result = g.bfs().fromExpr("id = '2391320044'").toExpr("id = '9170734738'").run();
+//
+//        System.out.println("Final result");
+//        result.show(20);
+//        //        ArrayList<Object> input = new ArrayList<>();
+////        input.add(2391320044L);
+////        input.add(9170734738L);
+////        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
+////        results1.select("id", "distances").show();
+//
 
         spark.stop();
     }

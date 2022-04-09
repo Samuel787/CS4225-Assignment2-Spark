@@ -45,8 +45,6 @@ public class FindPath {
                 new StructField("_lon", DataTypes.DoubleType, false, Metadata.empty())
         });
 
-        Map<Long, Set<Long>> adjacencyMap = new ConcurrentHashMap<>();
-
         Dataset nodeDF = spark.read()
                 .format("xml")
                 .option("rootTag", "osm")
@@ -54,14 +52,6 @@ public class FindPath {
                 .schema(nodeSchema)
                 .load(OSM_FILE_PATH);
 
-        nodeDF.toJavaRDD().foreach(new VoidFunction<Row>() {
-            @Override
-            public void call(Row row) throws Exception {
-                if (!adjacencyMap.containsKey(row.get(0))) {
-                    adjacencyMap.put((Long) row.get(0), new HashSet<>());
-                }
-            }
-        });
         nodeDF.show(10);
 
         Dataset wayDF = spark.read()
@@ -139,17 +129,35 @@ public class FindPath {
                 return outputString.toString();
             }
         });
+        gInput.withColumn("property", functions.lit(1));
+        gInput.show(10);
 
+//        Dataset meow = gInput.join(nodeDF, gInput.col("src").equalTo(nodeDF.col("_id")), "left_outer")
+//                            .join(nodeDF, gInput.col("dst").equalTo(nodeDF.col("_id")), "left_outer");
+//        meow.withColumn("song", distance(meow.col("hi"), ))
+//        System.out.println("This is meow: ");
+//        meow.show(10);
+//
+//        Dataset woof = nodeDF.select(nodeDF.col("*"))
+//                .where(nodeDF.col("_id").equalTo())
         // generate the adjacency list
         adjMapOutput.saveAsTextFile("out/adjmap.txt");
 
         // Generating the shortest paths
         GraphFrame g = new GraphFrame(nodeDF.select(nodeDF.col("_id").as("id")), gInput);
-        ArrayList<Object> input = new ArrayList<>();
-        input.add(2391320044L);
-        input.add(9170734738L);
-        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
-        results1.select("id", "distances").show();
+        Long start = 2391320044L;
+        Long end = 9170734738L;
+        Dataset result = g.bfs().fromExpr("id = '2391320044'").toExpr("id = '9170734738'").run();
+
+        System.out.println("Final result");
+        result.show(20);
+        //        ArrayList<Object> input = new ArrayList<>();
+//        input.add(2391320044L);
+//        input.add(9170734738L);
+//        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
+//        results1.select("id", "distances").show();
+
+
         spark.stop();
     }
 }

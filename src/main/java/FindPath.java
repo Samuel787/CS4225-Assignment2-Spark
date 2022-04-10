@@ -71,18 +71,20 @@ public class FindPath {
             List<Tuple2<Long, Set<Long>>> result = new LinkedList<>();
             Boolean isOneWay = row.getList(1).contains("oneway");
             int numNodes = row.getList(0).size();
-            if (numNodes > 0) {
+            if (numNodes ==  1) {
+
+            } else if (numNodes > 1) {
                 Long prevNode = (Long) row.getList(0).get(0);
                 for (int i = 1; i < numNodes; i++) {
                     Long currNode = (Long) row.getList(0).get(i);
                     Set<Long> mSet = new HashSet<>();
                     mSet.add(currNode);
                     result.add(new Tuple2<Long, Set<Long>>(prevNode, mSet));
-                    // if (!isOneWay) {
+                    if (!isOneWay) {
                         Set<Long> nSet = new HashSet<>();
                         nSet.add(prevNode);
                         result.add(new Tuple2<Long, Set<Long>>(currNode, nSet));
-                    // }
+                    }
                     prevNode = currNode;
                 }
             }
@@ -103,8 +105,26 @@ public class FindPath {
             }
         });
 
-        JavaPairRDD<Long, Tuple2<Integer, Optional<Set<Long>>>> neighbourNodesFull = nodeRDD.leftOuterJoin(neighbourNodes).sortByKey();
-        neighbourNodesFull.cache();
+        JavaRDD<String> adjList = neighbourNodes.sortByKey().map(new Function<Tuple2<Long, Set<Long>>, String>() {
+            @Override
+            public String call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
+                StringBuilder outputString = new StringBuilder();
+                outputString.append(longSetTuple2._1);
+                if (longSetTuple2._2.size() > 0) {
+                    List<Long> list = new ArrayList<>(longSetTuple2._2);
+                    Collections.sort(list);
+                    for (Long i: list) {
+                        outputString.append(" " + i);
+                    }
+                }
+                return outputString.toString();
+            }
+        });
+
+        adjList.saveAsTextFile("out/adjmap.txt");
+
+//        JavaPairRDD<Long, Tuple2<Integer, Optional<Set<Long>>>> neighbourNodesFull = nodeRDD.leftOuterJoin(neighbourNodes).sortByKey();
+//        neighbourNodesFull.cache();
 
 //        JavaPairRDD<Long, Long> adjNodes = neighbourNodesFull.flatMapToPair(new PairFlatMapFunction<Tuple2<Long,
 //                Tuple2<Integer, Optional<Set<Long>>>>, Long, Long>() {
@@ -122,23 +142,24 @@ public class FindPath {
 //        });
 //        adjNodes.cache();
 
-        JavaRDD<String> adjListResult = neighbourNodesFull.map(new Function<Tuple2<Long, Tuple2<Integer, Optional<Set<Long>>>>, String>() {
-            @Override
-            public String call(Tuple2<Long, Tuple2<Integer, Optional<Set<Long>>>> longTuple2Tuple2) throws Exception {
-                StringBuilder outputString = new StringBuilder();
-                outputString.append(longTuple2Tuple2._1);
-                if (longTuple2Tuple2._2._2.isPresent()) {
-                    List<Long> list = new ArrayList<>(longTuple2Tuple2._2._2.get());
-                    Collections.sort(list);
-                    for (Long i: list) {
-                        outputString.append(" " + i);
-                    }
-                }
-                return outputString.toString();
-            }
-        });
 
-        adjListResult.saveAsTextFile("out/adjmap.txt");
+//        JavaRDD<String> adjListResult = neighbourNodesFull.map(new Function<Tuple2<Long, Tuple2<Integer, Optional<Set<Long>>>>, String>() {
+//            @Override
+//            public String call(Tuple2<Long, Tuple2<Integer, Optional<Set<Long>>>> longTuple2Tuple2) throws Exception {
+//                StringBuilder outputString = new StringBuilder();
+//                outputString.append(longTuple2Tuple2._1);
+//                if (longTuple2Tuple2._2._2.isPresent()) {
+//                    List<Long> list = new ArrayList<>(longTuple2Tuple2._2._2.get());
+//                    Collections.sort(list);
+//                    for (Long i: list) {
+//                        outputString.append(" " + i);
+//                    }
+//                }
+//                return outputString.toString();
+//            }
+//        });
+//
+//        adjListResult.saveAsTextFile("out/adjmap.txt");
 
 
 

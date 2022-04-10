@@ -38,34 +38,8 @@ public class FindPath {
         SparkConf sparkConf = new SparkConf().setAppName("FindPath");
         SparkSession spark = SparkSession.builder().appName("FindPath").master("local[*]").getOrCreate();
         String OSM_FILE_PATH = "D:\\NUSY4S2\\BigDataProj\\Assignment2\\data\\NUS.osm";
-        StructType nodeSchema = new StructType(new StructField[] {
-                new StructField("_id", DataTypes.LongType, false, Metadata.empty()),
-                new StructField("_lat", DataTypes.DoubleType, false, Metadata.empty()),
-                new StructField("_lon", DataTypes.DoubleType, false, Metadata.empty())
-        });
-
-        Dataset nodeDF = spark.read()
-                .format("xml")
-                .option("rootTag", "osm")
-                .option("rowTag", "node")
-                .schema(nodeSchema)
-                .load(OSM_FILE_PATH);
-
-
-        JavaPairRDD<Long, Integer> nodeRDD = nodeDF.toJavaRDD().mapToPair(new PairFunction<Row, Long, Integer>() {
-            @Override
-            public Tuple2<Long, Integer> call(Row row) throws Exception {
-                return new Tuple2<Long, Integer>((Long)row.get(0), 1);
-            }
-        });
 
         StructType waySchema = new StructType(new StructField[] {
-                DataTypes.createStructField("nd", DataTypes.createStructType(new StructField[] {
-                        DataTypes.createStructField("nd._ref", DataTypes.createArrayType(DataTypes.LongType), true)
-                }), true)
-        });
-
-        StructType waySchema2 = new StructType(new StructField[] {
                 new StructField("nd", DataTypes.createArrayType(
                         DataTypes.createStructType(new StructField[] {
                                 new StructField("_ref", DataTypes.LongType, true, Metadata.empty())
@@ -79,22 +53,17 @@ public class FindPath {
                 ), true, Metadata.empty()),
         });
 
-        Dataset<Row> wayDF2 = spark.read()
+        Dataset<Row> wayDF = spark.read()
                 .format("xml")
                 .option("rootTag", "osm")
                 .option("rowTag", "way")
-                .schema(waySchema2)
+                .schema(waySchema)
                 .load(OSM_FILE_PATH);
 
-        Dataset<Row> wayDF3 = wayDF2.select(wayDF2.col("nd._ref"), wayDF2.col("tag._k").as("tag_keys"), wayDF2.col("tag._v").as("tag_vals"))
-                .where(functions.array_contains(wayDF2.col("tag._k"), "highway"));
+        Dataset<Row> wayDFModified = wayDF.select(wayDF.col("nd._ref"), wayDF.col("tag._k").as("tag_keys"), wayDF.col("tag._v").as("tag_vals"))
+                .where(functions.array_contains(wayDF.col("tag._k"), "highway"));
 
-        wayDF2.printSchema();
-        wayDF2.show(20);
-
-        wayDF3.show(20);
-
-        JavaPairRDD<Long, Set<Long>> neighbourNodes2 = wayDF3.toJavaRDD().flatMapToPair(row -> {
+        JavaPairRDD<Long, Set<Long>> neighbourNodes = wayDFModified.toJavaRDD().flatMapToPair(row -> {
             List<Tuple2<Long, Set<Long>>> result = new LinkedList<>();
             int numNodes = row.getList(0).size();
             if (numNodes == 0) {
@@ -142,7 +111,7 @@ public class FindPath {
             }
         });
 
-        JavaRDD<String> adjList2 = neighbourNodes2.sortByKey().map(new Function<Tuple2<Long, Set<Long>>, String>() {
+        JavaRDD<String> adjList = neighbourNodes.sortByKey().map(new Function<Tuple2<Long, Set<Long>>, String>() {
             @Override
             public String call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
                 StringBuilder sb = new StringBuilder();
@@ -158,7 +127,7 @@ public class FindPath {
             }
         });
 
-        adjList2.saveAsTextFile("out/adjmap.txt");
+        adjList.saveAsTextFile("out/adjmap.txt");
 
         spark.stop();
     }

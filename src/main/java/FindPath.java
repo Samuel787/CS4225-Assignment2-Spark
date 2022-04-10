@@ -1,18 +1,13 @@
-import algebra.lattice.Bool;
-import dk.brics.automaton.Datatypes;
-import org.apache.hadoop.shaded.org.ehcache.impl.internal.concurrent.ConcurrentHashMap;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.Optional;
 import org.apache.spark.api.java.function.*;
 import org.apache.spark.sql.*;
 import org.apache.spark.sql.types.*;
 import org.graphframes.GraphFrame;
 import scala.Tuple2;
-import scala.collection.mutable.WrappedArray;
-
-import javax.xml.crypto.Data;
+import java.io.File;
+import java.io.PrintWriter;
 import java.util.*;
 
 public class FindPath {
@@ -129,7 +124,7 @@ public class FindPath {
             }
         });
 
-        adjList.saveAsTextFile("out/adjmap.txt");
+        adjList.saveAsTextFile("out/adjmap");
 
         // part 2: finding path between the input nodes
         JavaPairRDD<Long, Long> adjNodesPair = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long,
@@ -147,17 +142,58 @@ public class FindPath {
 
         Dataset<Row> gEdges = spark.createDataset(adjNodesPair.collect(), Encoders.tuple(Encoders.LONG(), Encoders.LONG())).toDF("src", "dst").dropDuplicates();
         gEdges.cache();
-        Dataset<Row> gVertices = gEdges.select("src");
+        gEdges.show(10);
+        StructType nodeSchema = new StructType(new StructField[] {
+                new StructField("_id", DataTypes.LongType, false, Metadata.empty()),
+                new StructField("_lat", DataTypes.DoubleType, false, Metadata.empty()),
+                new StructField("_lon", DataTypes.DoubleType, false, Metadata.empty())
+        });
+        Dataset<Row> nodeDF = spark.read()
+                .format("xml")
+                .option("rootTag", "osm")
+                .option("rowTag", "node")
+                .schema(nodeSchema)
+                .load(OSM_FILE_PATH);
+        Dataset<Row> gVertices = nodeDF.select(nodeDF.col("_id").as("id"));
         gVertices.cache();
-        GraphFrame g = new GraphFrame(gEdges.select(gEdges.col("src").as("id")), gEdges);
+        gVertices.show(10);
+        GraphFrame g = new GraphFrame(gVertices, gEdges);
         g.cache();
-        ArrayList<Object> input = new ArrayList<>();
-        input.add(2391320044L);
-        input.add(9170734738L);
-        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
-        results1.select("id", "distances").show();
 
-        g.bfs().fromExpr(gEdges.col(""))
+
+//        ArrayList<Object> input = new ArrayList<>();
+//        input.add(2391320044L);
+//        input.add(9170734738L);
+//        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
+//        results1.select("id", "distances").show();
+
+        Long start = 8226203940L;
+        Long end = 1345103800L;
+        Dataset<Row> result = g.bfs().fromExpr("id = '8226203940'").toExpr("id = '1345103800'").run();
+        result.cache();
+
+        JavaRDD<String> path = result.toJavaRDD().map(row -> {
+                StringBuilder sb = new StringBuilder();
+                int numCols = row.size();
+                System.out.println("Number of colums: " + numCols);
+                for (int i = 0; i < numCols; i += 2) {
+                    if (i == 0) {
+                        System.out.println("This is row get (i): " + row.get(i));
+                        sb.append(row.get(i).toString());
+                    } else {
+                        System.out.println("This is row get (i): " + row.get(i));
+                        sb.append(" -> " + row.get(i).toString());
+                    }
+                }
+                return sb.toString();
+        });
+
+        String finalResult = path.collect().get(0).replace("[", "").replace("]", "");
+        System.out.println("This is path: " + finalResult);
+        try (PrintWriter out = new PrintWriter(System.getProperty("user.dir") + File.separator + "result.txt")) {
+            out.println(finalResult);
+        }
+        // path.saveAsTextFile("out/result");
 
         spark.stop();
     }

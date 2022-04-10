@@ -111,6 +111,8 @@ public class FindPath {
             }
         });
 
+        neighbourNodes.cache();
+
         JavaRDD<String> adjList = neighbourNodes.sortByKey().map(new Function<Tuple2<Long, Set<Long>>, String>() {
             @Override
             public String call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
@@ -128,6 +130,34 @@ public class FindPath {
         });
 
         adjList.saveAsTextFile("out/adjmap.txt");
+
+        // part 2: finding path between the input nodes
+        JavaPairRDD<Long, Long> adjNodesPair = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long,
+                Set<Long>>, Long, Long>() {
+            @Override
+            public Iterator<Tuple2<Long, Long>> call(Tuple2<Long, Set<Long>> longSetTuple2) throws Exception {
+                List<Tuple2<Long, Long>> emitList = new LinkedList<>();
+                Iterator<Long> itr = longSetTuple2._2.iterator();
+                while (itr.hasNext()) {
+                    emitList.add(new Tuple2<>(longSetTuple2._1, itr.next()));
+                }
+                return emitList.iterator();
+            }
+        });
+
+        Dataset<Row> gEdges = spark.createDataset(adjNodesPair.collect(), Encoders.tuple(Encoders.LONG(), Encoders.LONG())).toDF("src", "dst").dropDuplicates();
+        gEdges.cache();
+        Dataset<Row> gVertices = gEdges.select("src");
+        gVertices.cache();
+        GraphFrame g = new GraphFrame(gEdges.select(gEdges.col("src").as("id")), gEdges);
+        g.cache();
+        ArrayList<Object> input = new ArrayList<>();
+        input.add(2391320044L);
+        input.add(9170734738L);
+        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
+        results1.select("id", "distances").show();
+
+        g.bfs().fromExpr(gEdges.col(""))
 
         spark.stop();
     }

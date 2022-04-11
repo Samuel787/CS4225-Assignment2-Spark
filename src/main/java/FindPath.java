@@ -193,7 +193,6 @@ public class FindPath {
         try (PrintWriter out = new PrintWriter(System.getProperty("user.dir") + File.separator + "result.txt")) {
             out.println(finalResult);
         }
-        // path.saveAsTextFile("out/result");
 
         spark.stop();
     }

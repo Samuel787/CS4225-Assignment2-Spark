@@ -6,8 +6,9 @@ import org.apache.spark.sql.*;
 import org.apache.spark.sql.types.*;
 import org.graphframes.GraphFrame;
 import scala.Tuple2;
-import java.io.File;
-import java.io.PrintWriter;
+
+import java.io.*;
+import java.nio.file.Path;
 import java.util.*;
 
 public class FindPath {
@@ -30,10 +31,13 @@ public class FindPath {
     }
 
     public static void main(String[] args) throws Exception {
+        String INPUT_FILE_PATH = "D:\\NUSY4S2\\BigDataProj\\Assignment2\\data\\input.txt";
+        String OSM_FILE_PATH = System.getProperty("user.dir") + File.separator + "data" + File.separator + "NUS.osm"; // "D:\\NUSY4S2\\BigDataProj\\Assignment2\\data\\NUS.osm";
+        String ADJ_LIST_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + "result.adjmap.txt";
+        String ROUTE_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + "result.txt";
         SparkConf sparkConf = new SparkConf().setAppName("FindPath");
         SparkSession spark = SparkSession.builder().appName("FindPath").master("local[*]").getOrCreate();
-        String OSM_FILE_PATH = "D:\\NUSY4S2\\BigDataProj\\Assignment2\\data\\NUS.osm";
-
+        System.out.println("This is the file path: " + OSM_FILE_PATH);
         StructType waySchema = new StructType(new StructField[] {
                 new StructField("nd", DataTypes.createArrayType(
                         DataTypes.createStructType(new StructField[] {
@@ -123,8 +127,22 @@ public class FindPath {
                 return sb.toString();
             }
         });
-
-        adjList.saveAsTextFile("out/adjmap");
+        List<String> adjListRows = adjList.collect();
+        File mapFile = new File(ADJ_LIST_OUTPUT_PATH);
+        if (!mapFile.exists()) {
+            mapFile.createNewFile();
+        }
+        try {
+            BufferedWriter bw = new BufferedWriter(new FileWriter(ADJ_LIST_OUTPUT_PATH, true));
+            for (String row: adjListRows) {
+                bw.append(row);
+                bw.newLine();
+            }
+            bw.close();
+        } catch (IOException e) {
+            System.out.println("Error occurred while writing the adj list result file");
+            e.printStackTrace();
+        }
 
         // part 2: finding path between the input nodes
         JavaPairRDD<Long, Long> adjNodesPair = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long,
@@ -160,38 +178,78 @@ public class FindPath {
         GraphFrame g = new GraphFrame(gVertices, gEdges);
         g.cache();
 
+        ArrayList<String> inputLines = new ArrayList<>();
+        try {
+            File inputFile = new File(INPUT_FILE_PATH);
+            FileReader fr = new FileReader(inputFile);
+            BufferedReader br = new BufferedReader(fr);
+            String line;
+            while ((line = br.readLine()) != null) {
+                System.out.println("This line has been read from the input file: " + line);
+                inputLines.add(line);
+            }
+            fr.close();
+        } catch (IOException e) {
+            System.out.println("Error occurred while reading the input file");
+            e.printStackTrace();
+        }
 
-//        ArrayList<Object> input = new ArrayList<>();
-//        input.add(2391320044L);
-//        input.add(9170734738L);
-//        Dataset<Row> results1 = g.shortestPaths().landmarks(input).run();
-//        results1.select("id", "distances").show();
-
-        Long start = 8226203940L;
-        Long end = 1345103800L;
-        Dataset<Row> result = g.bfs().fromExpr("id = '8226203940'").toExpr("id = '1345103800'").run();
-        result.cache();
-
-        JavaRDD<String> path = result.toJavaRDD().map(row -> {
+        for (String query: inputLines) {
+            File routeFile = new File(ROUTE_OUTPUT_PATH);
+            if (!routeFile.exists()) {
+                routeFile.createNewFile();
+            }
+            String[] points = query.split(" ");
+            if (points.length != 2) {
+                System.out.println("invalid input detected: " + query);
+                try {
+                    BufferedWriter bw = new BufferedWriter(new FileWriter(ROUTE_OUTPUT_PATH, true));
+                    bw.append("");
+                    bw.newLine();
+                    bw.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                continue;
+            }
+            String fromExpr = "id = '" + points[0] + "'";
+            String toExpr = "id = '" + points[1] + "'";
+            Dataset<Row> result = g.bfs().fromExpr(fromExpr).toExpr(toExpr).run();
+            JavaRDD<String> path = result.toJavaRDD().map(row -> {
                 StringBuilder sb = new StringBuilder();
                 int numCols = row.size();
-                System.out.println("Number of colums: " + numCols);
                 for (int i = 0; i < numCols; i += 2) {
                     if (i == 0) {
-                        System.out.println("This is row get (i): " + row.get(i));
                         sb.append(row.get(i).toString());
                     } else {
-                        System.out.println("This is row get (i): " + row.get(i));
                         sb.append(" -> " + row.get(i).toString());
                     }
                 }
                 return sb.toString();
-        });
-
-        String finalResult = path.collect().get(0).replace("[", "").replace("]", "");
-        System.out.println("This is path: " + finalResult);
-        try (PrintWriter out = new PrintWriter(System.getProperty("user.dir") + File.separator + "result.txt")) {
-            out.println(finalResult);
+            });
+            List<String> resultRows = path.collect();
+            if (resultRows.size() == 0) {
+                System.out.println("invalid input detected: " + query);
+                // output an empty line in the file
+                try {
+                    BufferedWriter bw = new BufferedWriter(new FileWriter(ROUTE_OUTPUT_PATH, true));
+                    bw.append("");
+                    bw.newLine();
+                    bw.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                continue;
+            }
+            String finalResult = resultRows.get(0).replace("[", "").replace("]", "");
+            try {
+                BufferedWriter bw = new BufferedWriter(new FileWriter(ROUTE_OUTPUT_PATH, true));
+                bw.append(finalResult);
+                bw.newLine();
+                bw.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
 
         spark.stop();

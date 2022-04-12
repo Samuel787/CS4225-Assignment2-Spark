@@ -8,33 +8,47 @@ import org.graphframes.GraphFrame;
 import scala.Tuple2;
 
 import java.io.*;
-import java.nio.file.Path;
 import java.util.*;
 
 public class FindPath {
 
     static boolean runOnCluster = false;
-
-    // From: https://stackoverflow.com/questions/3694380/calculating-distance-between-two-points-using-latitude-longitude
     private static double distance(double lat1, double lat2, double lon1, double lon2) {
-        final int R = 6371; // Radius of the earth
+        final int R = 6371;
         double latDistance = Math.toRadians(lat2 - lat1);
         double lonDistance = Math.toRadians(lon2 - lon1);
         double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
                 + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
                 * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        double distance = R * c * 1000; // convert to meters
-        double height = 0; // For this assignment, we assume all locations have the same height.
+        double distance = R * c * 1000;
+        double height = 0;
         distance = Math.pow(distance, 2) + Math.pow(height, 2);
         return Math.sqrt(distance);
     }
 
     public static void main(String[] args) throws Exception {
-        String INPUT_FILE_PATH = "D:\\NUSY4S2\\BigDataProj\\Assignment2\\data\\input.txt";
-        String OSM_FILE_PATH = System.getProperty("user.dir") + File.separator + "data" + File.separator + "NUS.osm"; // "D:\\NUSY4S2\\BigDataProj\\Assignment2\\data\\NUS.osm";
-        String ADJ_LIST_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + "result.adjmap.txt";
-        String ROUTE_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + "result.txt";
+        String OSM_FILE_PATH = System.getProperty("user.dir") + File.separator + args[0];
+        String INPUT_FILE_PATH = System.getProperty("user.dir") + File.separator + args[1];
+        String ADJ_LIST_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[2];
+        String ROUTE_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[3];
+
+        try {
+            int idx = ADJ_LIST_OUTPUT_PATH.lastIndexOf("/");
+            File outputDir;
+            if (idx != -1) {
+                outputDir = new File(ADJ_LIST_OUTPUT_PATH.substring(0, idx));
+                outputDir.mkdirs();
+            }
+            idx = ROUTE_OUTPUT_PATH.lastIndexOf("/");
+            if (idx != -1) {
+                outputDir = new File(ADJ_LIST_OUTPUT_PATH.substring(0, idx));
+                outputDir.mkdirs();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
         SparkConf sparkConf = new SparkConf().setAppName("FindPath");
         SparkSession spark = SparkSession.builder().appName("FindPath").master("local[*]").getOrCreate();
         System.out.println("This is the file path: " + OSM_FILE_PATH);
@@ -87,7 +101,6 @@ public class FindPath {
                         result.add(new Tuple2<>(currNode, backwardSet));
                     }
                 }
-                // very last node
                 if (i == (numNodes - 1)) {
                     result.add(new Tuple2<>(currNode, new HashSet<>(0)));
                 }
@@ -144,7 +157,6 @@ public class FindPath {
             e.printStackTrace();
         }
 
-        // part 2: finding path between the input nodes
         JavaPairRDD<Long, Long> adjNodesPair = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long,
                 Set<Long>>, Long, Long>() {
             @Override
@@ -230,7 +242,7 @@ public class FindPath {
             List<String> resultRows = path.collect();
             if (resultRows.size() == 0) {
                 System.out.println("invalid input detected: " + query);
-                // output an empty line in the file
+
                 try {
                     BufferedWriter bw = new BufferedWriter(new FileWriter(ROUTE_OUTPUT_PATH, true));
                     bw.append("");

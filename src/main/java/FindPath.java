@@ -4,10 +4,8 @@
  *  Matric Number: A0182488N
  *  Name: Suther David Samuel
  */
-import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.*;
@@ -17,7 +15,6 @@ import org.graphframes.GraphFrame;
 import scala.Tuple2;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class FindPath {
@@ -57,28 +54,9 @@ public class FindPath {
             ROUTE_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[3];
         }
 
-
-//        try {
-//            int idx = ADJ_LIST_OUTPUT_PATH.lastIndexOf("/");
-//            File outputDir;
-//            if (idx != -1) {
-//                outputDir = new File(ADJ_LIST_OUTPUT_PATH.substring(0, idx));
-//                outputDir.mkdirs();
-//            }
-//            idx = ROUTE_OUTPUT_PATH.lastIndexOf("/");
-//            if (idx != -1) {
-//                outputDir = new File(ADJ_LIST_OUTPUT_PATH.substring(0, idx));
-//                outputDir.mkdirs();
-//            }
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//        }
-
-        SparkConf sparkConf = new SparkConf().setAppName("FindPath");
-        // SparkSession spark = SparkSession.builder().appName("FindPath").master("local[*]").getOrCreate();
-        SparkSession spark = SparkSession.builder().appName("FindPath").getOrCreate();
+        SparkSession spark = SparkSession.builder().appName("FindPath").master("local[*]").getOrCreate();
+        // SparkSession spark = SparkSession.builder().appName("FindPath").getOrCreate();
         FileSystem fs = FileSystem.get(spark.sparkContext().hadoopConfiguration());
-        System.out.println("This is the file path: " + OSM_FILE_PATH);
         StructType waySchema = new StructType(new StructField[] {
                 new StructField("nd", DataTypes.createArrayType(
                         DataTypes.createStructType(new StructField[] {
@@ -101,14 +79,7 @@ public class FindPath {
                 .load(OSM_FILE_PATH);
 
         Dataset<Row> inputQueriesDF = spark.read().text(INPUT_FILE_PATH);
-        System.out.println("Here are the input queries");
-        inputQueriesDF.show();
-
         List<String> inputQueries = inputQueriesDF.as(Encoders.STRING()).collectAsList();
-        for (String x: inputQueries) {
-            System.out.println("This is one string row in query: " + x);
-        }
-
         Dataset<Row> wayDFModified = wayDF.select(wayDF.col("nd._ref"), wayDF.col("tag._k").as("tag_keys"), wayDF.col("tag._v").as("tag_vals"))
                 .where(functions.array_contains(wayDF.col("tag._k"), "highway"));
 
@@ -183,25 +154,6 @@ public class FindPath {
             fs.rename(adjListTempPath, adjListPath);
         }
 
-//        List<String> adjListRows = adjList.collect();
-//        File mapFile = new File(ADJ_LIST_OUTPUT_PATH);
-//        System.out.println("creating adj file");
-//        if (!mapFile.exists()) {
-//            mapFile.createNewFile();
-//        }
-//        try {
-//            BufferedWriter bw = new BufferedWriter(new FileWriter(ADJ_LIST_OUTPUT_PATH, true));
-//            for (String row: adjListRows) {
-//                System.out.println("Writing this row to file: " + row);
-//                bw.append(row);
-//                bw.newLine();
-//            }
-//            bw.close();
-//        } catch (IOException e) {
-//            System.out.println("Error occurred while writing the adj list result file");
-//            e.printStackTrace();
-//        }
-
         JavaPairRDD<Long, Long> adjNodesPair = neighbourNodes.flatMapToPair(new PairFlatMapFunction<Tuple2<Long,
                 Set<Long>>, Long, Long>() {
             @Override
@@ -217,7 +169,6 @@ public class FindPath {
 
         Dataset<Row> gEdges = spark.createDataset(adjNodesPair.collect(), Encoders.tuple(Encoders.LONG(), Encoders.LONG())).toDF("src", "dst").dropDuplicates();
         gEdges.cache();
-        gEdges.show(10);
         StructType nodeSchema = new StructType(new StructField[] {
                 new StructField("_id", DataTypes.LongType, false, Metadata.empty()),
                 new StructField("_lat", DataTypes.DoubleType, false, Metadata.empty()),
@@ -231,34 +182,13 @@ public class FindPath {
                 .load(OSM_FILE_PATH);
         Dataset<Row> gVertices = nodeDF.select(nodeDF.col("_id").as("id"));
         gVertices.cache();
-        gVertices.show(10);
         GraphFrame g = new GraphFrame(gVertices, gEdges);
-        g.cache();
 
-//        ArrayList<String> inputLines = new ArrayList<>();
-//        try {
-//            File inputFile = new File(INPUT_FILE_PATH);
-//            FileReader fr = new FileReader(inputFile);
-//            BufferedReader br = new BufferedReader(fr);
-//            String line;
-//            while ((line = br.readLine()) != null) {
-//                System.out.println("This line has been read from the input file: " + line);
-//                inputLines.add(line);
-//            }
-//            fr.close();
-//        } catch (IOException e) {
-//            System.out.println("Error occurred while reading the input file");
-//            e.printStackTrace();
-//        }
-        JavaRDD<String> pathRDD = null;
         Path routeTempPath = new Path(ROUTE_OUTPUT_TEMP_PATH + "/part-00000");
         Path routeOutputPath = new Path(ROUTE_OUTPUT_PATH);
         Path routeTempFolder = new Path(ROUTE_OUTPUT_TEMP_PATH);
         if (fs.exists(routeTempFolder)) {
-            System.out.println(" temp output file File exists at the start man");
             fs.delete(routeTempFolder, true);
-        } else {
-            System.out.println("Just here printing smth");
         }
         List<String> queryResultsList = new ArrayList<>();
         for (String query: inputQueries) {
@@ -283,33 +213,6 @@ public class FindPath {
                 return sb;
             }).reduce(StringBuilder::append).toString();
             queryResultsList.add(currPath);
-            // pathRDD = (pathRDD == null) ? currPathRDD : pathRDD.union(currPathRDD);
-//            List<String> resultRows = currPathRDD.collect();
-//            if (resultRows.size() == 0) {
-////                System.out.println("invalid input detected: " + query);
-////
-////                try {
-////                    BufferedWriter bw = new BufferedWriter(new FileWriter(ROUTE_OUTPUT_PATH, true));
-////                    bw.append("");
-////                    bw.newLine();
-////                    bw.close();
-////                } catch (IOException e) {
-////                    e.printStackTrace();
-////                }
-//                currPathString = "";
-//            }
-//            String currPathString = (resultRows.size() == 0) ? "" : resultRows.get(0).replace("[", "").replace("]", "");
-//            currPathRDD =
-//
-//            System.out.println("Result of path rdd: ");
-//            try {
-//                BufferedWriter bw = new BufferedWriter(new FileWriter(ROUTE_OUTPUT_PATH, true));
-//                bw.append(finalResult);
-//                bw.newLine();
-//                bw.close();
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//            }
             if (fs.exists(routeTempFolder)) {
                 fs.delete(routeTempFolder, true);
             }

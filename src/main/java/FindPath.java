@@ -12,7 +12,7 @@ import java.util.*;
 
 public class FindPath {
 
-    static boolean runOnCluster = false;
+    static boolean runOnCluster = true;
     private static double distance(double lat1, double lat2, double lon1, double lon2) {
         final int R = 6371;
         double latDistance = Math.toRadians(lat2 - lat1);
@@ -28,10 +28,22 @@ public class FindPath {
     }
 
     public static void main(String[] args) throws Exception {
-        String OSM_FILE_PATH = System.getProperty("user.dir") + File.separator + args[0];
-        String INPUT_FILE_PATH = System.getProperty("user.dir") + File.separator + args[1];
-        String ADJ_LIST_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[2];
-        String ROUTE_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[3];
+
+        String OSM_FILE_PATH;
+        String INPUT_FILE_PATH;
+        String ADJ_LIST_OUTPUT_PATH;
+        String ROUTE_OUTPUT_PATH;
+        if (runOnCluster) {
+            OSM_FILE_PATH = args[0];
+            INPUT_FILE_PATH = args[1];
+            ADJ_LIST_OUTPUT_PATH = args[2];
+            ROUTE_OUTPUT_PATH = args[3];
+        } else {
+            OSM_FILE_PATH = System.getProperty("user.dir") + File.separator + args[0];
+            INPUT_FILE_PATH = System.getProperty("user.dir") + File.separator + args[1];
+            ADJ_LIST_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[2];
+            ROUTE_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[3];
+        }
 
         try {
             int idx = ADJ_LIST_OUTPUT_PATH.lastIndexOf("/");
@@ -72,6 +84,12 @@ public class FindPath {
                 .option("rowTag", "way")
                 .schema(waySchema)
                 .load(OSM_FILE_PATH);
+
+        if (runOnCluster) {
+            Dataset<Row> inputQueries = spark.read().text(INPUT_FILE_PATH);
+            System.out.println("Here are the input queries");
+            inputQueries.show();
+        }
 
         Dataset<Row> wayDFModified = wayDF.select(wayDF.col("nd._ref"), wayDF.col("tag._k").as("tag_keys"), wayDF.col("tag._v").as("tag_vals"))
                 .where(functions.array_contains(wayDF.col("tag._k"), "highway"));

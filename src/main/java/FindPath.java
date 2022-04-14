@@ -1,8 +1,8 @@
 
-// hello world
 /**
  *  Matric Number: A0182488N
  *  Name: Suther David Samuel
+ *  Module: CS4225 AY21/22 Assignment 2
  */
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -54,8 +54,8 @@ public class FindPath {
             ROUTE_OUTPUT_PATH = System.getProperty("user.dir") + File.separator + args[3];
         }
 
-        SparkSession spark = SparkSession.builder().appName("FindPath").master("local[*]").getOrCreate();
-        // SparkSession spark = SparkSession.builder().appName("FindPath").getOrCreate();
+        // SparkSession spark = SparkSession.builder().appName("FindPath").master("local[*]").getOrCreate();
+        SparkSession spark = SparkSession.builder().appName("FindPath").getOrCreate();
         FileSystem fs = FileSystem.get(spark.sparkContext().hadoopConfiguration());
         StructType waySchema = new StructType(new StructField[] {
                 new StructField("nd", DataTypes.createArrayType(
